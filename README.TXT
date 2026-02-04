@@ -1,2 +1,2 @@
 Libreria requereda:
-python automatas_gui.py
+python -m pip install ttkbootstrap
