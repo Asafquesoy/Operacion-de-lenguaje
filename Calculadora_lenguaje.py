@@ -4,16 +4,12 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.scrolled import ScrolledFrame
 import re
-import itertools
 
-# --- LÓGICA DEL BACKEND ---
-
+# --- LÓGICA DEL BACKEND (Igual que antes) ---
 class LanguageProcessor:
     def __init__(self):
         self.alphabet = set()
         self.languages = {}
-        # Límite de longitud para generar el Universo en el complemento
-        self.universe_limit = 4 
 
     def set_alphabet(self, alphabet_str):
         clean_str = alphabet_str.replace(" ", "")
@@ -44,8 +40,6 @@ class LanguageProcessor:
                     new_set.add(part)
         self.languages[lang_name] = new_set
 
-    # --- OPERACIONES ---
-
     def concatenate(self, L1, L2):
         result = set()
         if not L1 or not L2: return set()
@@ -54,28 +48,18 @@ class LanguageProcessor:
                 result.add(s1 + s2)
         return result
 
-    def generate_universe(self):
-        """Genera Sigma* hasta cierta longitud para calcular el complemento finito."""
-        universe = {""} # Incluye epsilon
-        if not self.alphabet:
-            return universe
-        
-        # Generar combinaciones desde longitud 1 hasta el límite
-        chars = list(self.alphabet)
-        for i in range(1, self.universe_limit + 1):
-            for item in itertools.product(chars, repeat=i):
-                universe.add("".join(item))
-        return universe
-
     def complement(self, L1):
-        """Calcula el complemento relativo al universo acotado (Sigma* - L)."""
-        universe = self.generate_universe()
-        return universe - L1
+        if not self.alphabet: return set() 
+        result = set()
+        sorted_alpha = sorted(list(self.alphabet))
+        for string in L1:
+            chars_in_string = set(string)
+            for char in sorted_alpha:
+                if char not in chars_in_string:
+                    result.add(char)
+        return result
     
-    # --- PARSER ---
-
     def _tokenize(self, expr):
-        # Agregamos el símbolo ᶜ al regex
         pattern = r'(L\d+|[U∩\-Δ•()ᶜ]|\s+)'
         tokens = [t for t in re.split(pattern, expr) if t and not t.isspace()]
         return tokens
@@ -85,8 +69,6 @@ class LanguageProcessor:
         tokens = self._tokenize(expression)
         output_queue = []
         operator_stack = []
-        
-        # Precedencia: El complemento (ᶜ) es unario y tiene la prioridad más alta (4)
         precedence = {'ᶜ': 4, '•': 3, '∩': 2, 'U': 1, '-': 1, 'Δ': 1, '(': 0}
 
         for token in tokens:
@@ -94,16 +76,11 @@ class LanguageProcessor:
                 if token not in self.languages:
                      raise ValueError(f"El lenguaje {token} no existe.")
                 output_queue.append(self.languages[token])
-            
             elif token in precedence: 
-                # Lógica especial para operadores unarios (postfijos como ᶜ) no necesitan sacar nada del stack aún
-                # Pero en Shunting-yard estándar se tratan normal en precedencia
                 while (operator_stack and operator_stack[-1] != '(' and
                        precedence[operator_stack[-1]] >= precedence[token]):
-                    # Importante: El ᶜ es asociativo por derecha o izquierda da igual, pero tiene alta prioridad
                     output_queue.append(operator_stack.pop())
                 operator_stack.append(token)
-            
             elif token == '(':
                 operator_stack.append(token)
             elif token == ')':
@@ -114,24 +91,19 @@ class LanguageProcessor:
         while operator_stack:
             output_queue.append(operator_stack.pop())
 
-        # --- EVALUACIÓN RPN ---
         eval_stack = []
         for token in output_queue:
             if isinstance(token, set):
                 eval_stack.append(token)
             else: 
-                # Es un operador
                 if token == 'ᶜ':
-                    # OPERADOR UNARIO: Solo saca 1 elemento
-                    if len(eval_stack) < 1: raise ValueError("Error de sintaxis en complemento.")
+                    if len(eval_stack) < 1: raise ValueError("Error sintaxis compl.")
                     val1 = eval_stack.pop()
                     eval_stack.append(self.complement(val1))
                 else:
-                    # OPERADORES BINARIOS: Sacan 2 elementos
-                    if len(eval_stack) < 2: raise ValueError("Error de sintaxis.")
+                    if len(eval_stack) < 2: raise ValueError("Error sintaxis.")
                     val2 = eval_stack.pop()
                     val1 = eval_stack.pop()
-
                     if token == 'U': eval_stack.append(val1 | val2)
                     elif token == '∩': eval_stack.append(val1 & val2)
                     elif token == '-': eval_stack.append(val1 - val2)
@@ -168,14 +140,15 @@ class AutoLangsApp(ttk.Window):
         # 1. Alfabeto
         f1 = ttk.Labelframe(main_frame, text="1. Alfabeto (Σ)", padding=10)
         f1.pack(fill=X, pady=5)
-        ttk.Label(f1, text="Símbolos (ej: a, b). Nota: El complemento se calcula hasta longitud 4.").pack(anchor=W)
+        ttk.Label(f1, text="Símbolos (ej: a, b, c):").pack(anchor=W)
         self.alphabet_entry = ttk.Entry(f1)
         self.alphabet_entry.pack(fill=X, pady=5)
 
         # 2. Lenguajes
-        f2 = ttk.Labelframe(main_frame, text="2. Lenguajes (L)", padding=10)
+        f2 = ttk.Labelframe(main_frame, text="2. Definición de Lenguajes (L)", padding=10)
         f2.pack(fill=BOTH, expand=YES, pady=10)
         
+        # ScrolledFrame para las cajas de texto de los lenguajes
         self.langs_container = ScrolledFrame(f2, padding=5, height=200)
         self.langs_container.pack(fill=BOTH, expand=YES)
 
@@ -185,13 +158,14 @@ class AutoLangsApp(ttk.Window):
         f3 = ttk.Labelframe(main_frame, text="3. Operaciones", padding=10)
         f3.pack(fill=X, pady=10)
 
+        # Entry de Solo Lectura (La fórmula)
         self.expr_entry = ttk.Entry(f3, font=("Consolas", 14), state="readonly")
         self.expr_entry.pack(fill=X, pady=(0, 10))
 
         btns_container = ttk.Frame(f3)
         btns_container.pack(fill=X)
 
-        self.lang_btns_frame = ttk.Labelframe(btns_container, text="Lenguajes", padding=5)
+        self.lang_btns_frame = ttk.Labelframe(btns_container, text="Lenguajes Disponibles", padding=5)
         self.lang_btns_frame.pack(side=LEFT, fill=BOTH, expand=YES, padx=(0, 10))
         
         ops_btns_frame = ttk.Frame(btns_container)
@@ -200,14 +174,14 @@ class AutoLangsApp(ttk.Window):
         ctrl_frame = ttk.Frame(ops_btns_frame)
         ctrl_frame.pack(fill=X, pady=(0, 5))
         
-        ttk.Button(ctrl_frame, text="C (Limpiar)", command=self.clear_expression, bootstyle="DANGER", width=10).pack(side=LEFT, padx=2)
+        # BOTÓN LIMPIAR: Solo llama a clear_formula
+        ttk.Button(ctrl_frame, text="Limpiar Fórmula", command=self.clear_formula, bootstyle="DANGER", width=15).pack(side=LEFT, padx=2)
         ttk.Button(ctrl_frame, text="⌫", command=self.backspace_expression, bootstyle="WARNING", width=5).pack(side=LEFT, padx=2)
         ttk.Button(ctrl_frame, text="CALCULAR (=)", command=self.calculate, bootstyle="PRIMARY", width=15).pack(side=LEFT, padx=2)
 
         sym_frame = ttk.Frame(ops_btns_frame)
         sym_frame.pack(fill=X)
         
-        # Agregamos el Complemento a la lista de botones
         operators = [
             ("U (Unión)", " U "), ("∩ (Inter)", " ∩ "), 
             ("- (Dif)", " - "), ("Δ (Sim)", " Δ "), 
@@ -217,10 +191,7 @@ class AutoLangsApp(ttk.Window):
         
         r, c = 0, 0
         for txt, val in operators:
-            # El botón de complemento lo insertamos pegado, sin espacios extra a la izquierda necesariamente
-            # pero para uniformidad lo trataremos como string
             action = lambda v=val: self.insert_symbol(v)
-            
             b = ttk.Button(sym_frame, text=txt, command=action, bootstyle="secondary-outline", width=14)
             b.grid(row=r, column=c, padx=2, pady=2)
             c += 1
@@ -254,15 +225,12 @@ class AutoLangsApp(ttk.Window):
         i = 1
         while f"L{i}" in self.lang_entries: i += 1
         l_name = f"L{i}"
-        
         row = ttk.Frame(self.langs_container)
         row.pack(fill=X, pady=5)
-        
         ttk.Label(row, text=f"{l_name} =", width=4, font="bold").pack(side=LEFT)
         e = ttk.Entry(row)
         e.pack(side=LEFT, fill=X, expand=YES, padx=5)
         ttk.Button(row, text="✕", bootstyle="DANGER-link", command=lambda n=l_name, f=row: self.remove_language_row(n, f)).pack(side=RIGHT)
-
         self.lang_entries[l_name] = e
         self.refresh_lang_buttons()
 
@@ -273,14 +241,14 @@ class AutoLangsApp(ttk.Window):
 
     def insert_symbol(self, symbol):
         self.expr_entry.configure(state="normal")
-        # Si es complemento, no ponemos espacios alrededor para que quede pegado a la letra (Ej: L1ᶜ)
-        if symbol == "ᶜ":
-             self.expr_entry.insert(tk.END, f"{symbol}")
-        else:
-             self.expr_entry.insert(tk.END, f"{symbol}")
+        self.expr_entry.insert(tk.END, f"{symbol}")
         self.expr_entry.configure(state="readonly")
 
-    def clear_expression(self):
+    def clear_formula(self):
+        """
+        Esta función SOLO borra la barra de fórmulas.
+        No toca self.lang_entries (que son las cajas L1, L2).
+        """
         self.expr_entry.configure(state="normal")
         self.expr_entry.delete(0, tk.END)
         self.expr_entry.configure(state="readonly")
@@ -308,12 +276,8 @@ class AutoLangsApp(ttk.Window):
             if not result:
                 res_str = "∅"
             else:
-                # Limitamos la visualización si hay demasiados elementos para que no se congele la UI
                 res_list = sorted(list(result), key=len)
-                if len(res_list) > 200:
-                     res_str = "{ " + ", ".join(res_list[:200]) + " ... (truncado) }"
-                else:
-                     res_str = "{ " + ", ".join(res_list) + " }"
+                res_str = "{ " + ", ".join(res_list) + " }"
 
             self.result_text.configure(state="normal")
             self.result_text.delete("1.0", tk.END)
