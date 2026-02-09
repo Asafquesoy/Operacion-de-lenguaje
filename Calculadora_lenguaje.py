@@ -13,7 +13,6 @@ class LanguageProcessor:
         self.languages = {}
 
     def set_alphabet(self, alphabet_str):
-        # CAMBIO: .split() sin argumentos separa por cualquier espacio en blanco
         if not alphabet_str.strip():
             self.alphabet = set()
         else:
@@ -22,24 +21,19 @@ class LanguageProcessor:
     def validate_string(self, s):
         if not self.alphabet: return True 
         if s == "": return True
-        # Validamos que cada caracter de la cadena exista en el alfabeto
         for char in s:
             if char not in self.alphabet: return False
         return True
 
     def add_language(self, lang_name, lang_str):
-        # CAMBIO: Separamos por espacios
         new_set = set()
         if lang_str.strip():
-            # Si escriben explícitamente cadenas vacías especiales
             if lang_str.strip() in ["ε", "lambda"]:
                 new_set = {""} 
             else:
-                # split() corta por espacios. Ej: "a b ;" -> ["a", "b", ";"]
                 parts = lang_str.split()
                 for part in parts:
                     if not self.validate_string(part):
-                        # Buscamos el char inválido
                         bad_char = next((c for c in part if c not in self.alphabet), "?")
                         raise ValueError(f"Error en {lang_name}: El carácter '{bad_char}' no pertenece al Alfabeto.")
                     new_set.add(part)
@@ -128,8 +122,8 @@ class LanguageProcessor:
 class AutoLangsApp(ttk.Window):
     def __init__(self):
         super().__init__(themename="cosmo") 
-        self.title("Calculadora de Lenguajes")
-        self.geometry("1000x850")
+        self.title("Calculadora de lenguajes")
+        self.geometry("1100x850") # Un poco más ancho para que quepa todo bien
         
         self.processor = LanguageProcessor()
         self.lang_entries = {} 
@@ -139,7 +133,7 @@ class AutoLangsApp(ttk.Window):
     def setup_ui(self):
         header = ttk.Frame(self, padding=(20, 10))
         header.pack(fill=X)
-        ttk.Label(header, text="Calculadora de Autómatas", font=("Helvetica", 16, "bold")).pack(side=LEFT)
+        ttk.Label(header, text="Calculadora de lenguajes", font=("Helvetica", 16, "bold")).pack(side=LEFT)
         ttk.Checkbutton(header, text="Modo Oscuro", variable=self.is_dark_mode, command=self.toggle_theme, bootstyle="round-toggle").pack(side=RIGHT)
 
         main_frame = ttk.Frame(self, padding=20)
@@ -148,21 +142,17 @@ class AutoLangsApp(ttk.Window):
         # 1. Alfabeto
         f1 = ttk.Labelframe(main_frame, text="1. Alfabeto (Σ)", padding=10)
         f1.pack(fill=X, pady=5)
-        # Instrucción actualizada
-        ttk.Label(f1, text="Símbolos separados por ESPACIO. Ejemplo: a b ; ,").pack(anchor=W)
+        ttk.Label(f1, text="Símbolos separados por estacio").pack(anchor=W)
         self.alphabet_entry = ttk.Entry(f1)
         self.alphabet_entry.pack(fill=X, pady=5)
 
         # 2. Lenguajes
-        f2 = ttk.Labelframe(main_frame, text="2. Definición de Lenguajes (L)", padding=10)
+        f2 = ttk.Labelframe(main_frame, text="2. Define los Lenguajes (L)", padding=10)
         f2.pack(fill=BOTH, expand=YES, pady=10)
         
         self.langs_container = ScrolledFrame(f2, padding=5, height=200)
         self.langs_container.pack(fill=BOTH, expand=YES)
         
-        # Etiqueta de ayuda actualizada
-        ttk.Label(f2, text="Nota: Separe los elementos con ESPACIOS.", font=("Arial", 9, "bold")).pack(anchor=E)
-
         ttk.Button(f2, text="+ Agregar Lenguaje", command=self.add_language_row, bootstyle="SUCCESS").pack(anchor=E, pady=5)
 
         # 3. Operaciones
@@ -175,11 +165,20 @@ class AutoLangsApp(ttk.Window):
         btns_container = ttk.Frame(f3)
         btns_container.pack(fill=X)
 
-        self.lang_btns_frame = ttk.Labelframe(btns_container, text="Lenguajes Disponibles", padding=5)
-        self.lang_btns_frame.pack(side=LEFT, fill=BOTH, expand=YES, padx=(0, 10))
+        # --- CAMBIO AQUÍ: Panel Izquierdo con SCROLL y ANCHO FIJO ---
+        # Usamos un Frame normal para el título y borde
+        self.lang_btns_wrapper = ttk.Labelframe(btns_container, text="Lenguajes Disponibles", padding=5, width=350)
+        # pack_propagate(False) evita que el frame se encoja o agrande según el contenido
+        self.lang_btns_wrapper.pack_propagate(False) 
+        self.lang_btns_wrapper.pack(side=LEFT, fill=BOTH, padx=(0, 10))
+
+        # Dentro ponemos el ScrolledFrame para que si hay muchos, se pueda bajar
+        self.lang_btns_scroll = ScrolledFrame(self.lang_btns_wrapper, height=150)
+        self.lang_btns_scroll.pack(fill=BOTH, expand=YES)
         
+        # --- Panel Derecho (Operadores) ---
         ops_btns_frame = ttk.Frame(btns_container)
-        ops_btns_frame.pack(side=RIGHT)
+        ops_btns_frame.pack(side=RIGHT, fill=BOTH, expand=YES)
 
         ctrl_frame = ttk.Frame(ops_btns_frame)
         ctrl_frame.pack(fill=X, pady=(0, 5))
@@ -192,10 +191,10 @@ class AutoLangsApp(ttk.Window):
         sym_frame.pack(fill=X)
         
         operators = [
-            ("U (Unión)", " U "), ("∩ (Inter)", " ∩ "), 
-            ("- (Dif)", " - "), ("Δ (Sim)", " Δ "), 
-            ("• (Concat)", " • "), ("(..)", "("), ( "..)", ")"),
-            ("Complemento (Lᶜ)", "ᶜ") 
+            ("U", " U "), ("∩", " ∩ "), 
+            ("-", " - "), ("Δ", " Δ "), 
+            ("•", " • "), ("(", "("), ( ")", ")"),
+            ("(Lᶜ)", "ᶜ") 
         ]
         
         r, c = 0, 0
@@ -222,13 +221,25 @@ class AutoLangsApp(ttk.Window):
         self.style.theme_use(style)
 
     def refresh_lang_buttons(self):
-        for widget in self.lang_btns_frame.winfo_children():
+        # Limpiamos los botones dentro del área de scroll
+        for widget in self.lang_btns_scroll.winfo_children():
             widget.destroy()
+            
         keys = list(self.lang_entries.keys())
         keys.sort(key=lambda x: int(x[1:]))
+        
+        # --- CAMBIO AQUÍ: Usamos GRID en lugar de PACK ---
+        r, c = 0, 0
         for key in keys:
-            btn = ttk.Button(self.lang_btns_frame, text=key, command=lambda k=key: self.insert_symbol(k), bootstyle="info")
-            btn.pack(side=LEFT, padx=5, pady=5)
+            # Botones un poco más pequeños para que quepan bien
+            btn = ttk.Button(self.lang_btns_scroll, text=key, command=lambda k=key: self.insert_symbol(k), bootstyle="info", width=5)
+            btn.grid(row=r, column=c, padx=3, pady=3)
+            
+            c += 1
+            # Si llegamos a 4 columnas, bajamos a la siguiente fila
+            if c >= 4:
+                c = 0
+                r += 1
 
     def add_language_row(self):
         i = 1
@@ -281,8 +292,6 @@ class AutoLangsApp(ttk.Window):
             if not result:
                 res_str = "∅"
             else:
-                # El resultado se sigue mostrando con comas para que sea legible, 
-                # pero la entrada es por espacios.
                 res_list = sorted(list(result), key=len)
                 res_str = "{ " + ", ".join(res_list) + " }"
 
