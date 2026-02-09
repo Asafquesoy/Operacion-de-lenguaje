@@ -5,40 +5,47 @@ from ttkbootstrap.constants import *
 from ttkbootstrap.scrolled import ScrolledFrame
 import re
 
-# --- LÓGICA DEL BACKEND (Igual que antes) ---
+# --- LÓGICA DEL BACKEND ---
+
 class LanguageProcessor:
     def __init__(self):
         self.alphabet = set()
         self.languages = {}
 
     def set_alphabet(self, alphabet_str):
-        clean_str = alphabet_str.replace(" ", "")
-        if not clean_str:
+        # CAMBIO: .split() sin argumentos separa por cualquier espacio en blanco
+        if not alphabet_str.strip():
             self.alphabet = set()
         else:
-            self.alphabet = set(clean_str.split(','))
+            self.alphabet = set(alphabet_str.split())
 
     def validate_string(self, s):
         if not self.alphabet: return True 
         if s == "": return True
+        # Validamos que cada caracter de la cadena exista en el alfabeto
         for char in s:
             if char not in self.alphabet: return False
         return True
 
     def add_language(self, lang_name, lang_str):
-        clean_str = lang_str.replace(" ", "")
+        # CAMBIO: Separamos por espacios
         new_set = set()
-        if clean_str:
-            if clean_str == "ε" or clean_str == "lambda":
+        if lang_str.strip():
+            # Si escriben explícitamente cadenas vacías especiales
+            if lang_str.strip() in ["ε", "lambda"]:
                 new_set = {""} 
             else:
-                parts = clean_str.split(',')
+                # split() corta por espacios. Ej: "a b ;" -> ["a", "b", ";"]
+                parts = lang_str.split()
                 for part in parts:
                     if not self.validate_string(part):
+                        # Buscamos el char inválido
                         bad_char = next((c for c in part if c not in self.alphabet), "?")
                         raise ValueError(f"Error en {lang_name}: El carácter '{bad_char}' no pertenece al Alfabeto.")
                     new_set.add(part)
         self.languages[lang_name] = new_set
+
+    # --- OPERACIONES ---
 
     def concatenate(self, L1, L2):
         result = set()
@@ -59,6 +66,8 @@ class LanguageProcessor:
                     result.add(char)
         return result
     
+    # --- PARSER ---
+
     def _tokenize(self, expr):
         pattern = r'(L\d+|[U∩\-Δ•()ᶜ]|\s+)'
         tokens = [t for t in re.split(pattern, expr) if t and not t.isspace()]
@@ -128,7 +137,6 @@ class AutoLangsApp(ttk.Window):
         self.setup_ui()
 
     def setup_ui(self):
-        # Header
         header = ttk.Frame(self, padding=(20, 10))
         header.pack(fill=X)
         ttk.Label(header, text="Calculadora de Autómatas", font=("Helvetica", 16, "bold")).pack(side=LEFT)
@@ -140,7 +148,8 @@ class AutoLangsApp(ttk.Window):
         # 1. Alfabeto
         f1 = ttk.Labelframe(main_frame, text="1. Alfabeto (Σ)", padding=10)
         f1.pack(fill=X, pady=5)
-        ttk.Label(f1, text="Símbolos (ej: a, b, c):").pack(anchor=W)
+        # Instrucción actualizada
+        ttk.Label(f1, text="Símbolos separados por ESPACIO. Ejemplo: a b ; ,").pack(anchor=W)
         self.alphabet_entry = ttk.Entry(f1)
         self.alphabet_entry.pack(fill=X, pady=5)
 
@@ -148,9 +157,11 @@ class AutoLangsApp(ttk.Window):
         f2 = ttk.Labelframe(main_frame, text="2. Definición de Lenguajes (L)", padding=10)
         f2.pack(fill=BOTH, expand=YES, pady=10)
         
-        # ScrolledFrame para las cajas de texto de los lenguajes
         self.langs_container = ScrolledFrame(f2, padding=5, height=200)
         self.langs_container.pack(fill=BOTH, expand=YES)
+        
+        # Etiqueta de ayuda actualizada
+        ttk.Label(f2, text="Nota: Separe los elementos con ESPACIOS.", font=("Arial", 9, "bold")).pack(anchor=E)
 
         ttk.Button(f2, text="+ Agregar Lenguaje", command=self.add_language_row, bootstyle="SUCCESS").pack(anchor=E, pady=5)
 
@@ -158,7 +169,6 @@ class AutoLangsApp(ttk.Window):
         f3 = ttk.Labelframe(main_frame, text="3. Operaciones", padding=10)
         f3.pack(fill=X, pady=10)
 
-        # Entry de Solo Lectura (La fórmula)
         self.expr_entry = ttk.Entry(f3, font=("Consolas", 14), state="readonly")
         self.expr_entry.pack(fill=X, pady=(0, 10))
 
@@ -174,7 +184,6 @@ class AutoLangsApp(ttk.Window):
         ctrl_frame = ttk.Frame(ops_btns_frame)
         ctrl_frame.pack(fill=X, pady=(0, 5))
         
-        # BOTÓN LIMPIAR: Solo llama a clear_formula
         ttk.Button(ctrl_frame, text="Limpiar Fórmula", command=self.clear_formula, bootstyle="DANGER", width=15).pack(side=LEFT, padx=2)
         ttk.Button(ctrl_frame, text="⌫", command=self.backspace_expression, bootstyle="WARNING", width=5).pack(side=LEFT, padx=2)
         ttk.Button(ctrl_frame, text="CALCULAR (=)", command=self.calculate, bootstyle="PRIMARY", width=15).pack(side=LEFT, padx=2)
@@ -245,10 +254,6 @@ class AutoLangsApp(ttk.Window):
         self.expr_entry.configure(state="readonly")
 
     def clear_formula(self):
-        """
-        Esta función SOLO borra la barra de fórmulas.
-        No toca self.lang_entries (que son las cajas L1, L2).
-        """
         self.expr_entry.configure(state="normal")
         self.expr_entry.delete(0, tk.END)
         self.expr_entry.configure(state="readonly")
@@ -276,6 +281,8 @@ class AutoLangsApp(ttk.Window):
             if not result:
                 res_str = "∅"
             else:
+                # El resultado se sigue mostrando con comas para que sea legible, 
+                # pero la entrada es por espacios.
                 res_list = sorted(list(result), key=len)
                 res_str = "{ " + ", ".join(res_list) + " }"
 
