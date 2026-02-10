@@ -13,16 +13,21 @@ class LanguageProcessor:
         self.languages = {}
 
     def set_alphabet(self, alphabet_str):
+        # Separa por espacios cualquier símbolo
         if not alphabet_str.strip():
             self.alphabet = set()
         else:
             self.alphabet = set(alphabet_str.split())
 
     def validate_string(self, s):
+        """Valida si una cadena está compuesta por símbolos del alfabeto."""
         if not self.alphabet: return True 
         if s == "": return True
+        
+        # Estrategia: Verificar caracter por caracter es lo más seguro para alfabetos simples
         for char in s:
-            if char not in self.alphabet: return False
+            if char not in self.alphabet:
+                return False
         return True
 
     def add_language(self, lang_name, lang_str):
@@ -31,15 +36,17 @@ class LanguageProcessor:
             if lang_str.strip() in ["ε", "lambda"]:
                 new_set = {""} 
             else:
+                # Separamos por espacios
                 parts = lang_str.split()
                 for part in parts:
                     if not self.validate_string(part):
+                        # Buscamos qué caracter falló para avisar al usuario
                         bad_char = next((c for c in part if c not in self.alphabet), "?")
-                        raise ValueError(f"Error en {lang_name}: El carácter '{bad_char}' no pertenece al Alfabeto.")
+                        raise ValueError(f"Error en {lang_name}: El carácter '{bad_char}' no está en el Alfabeto.\n(Recuerda definir el alfabeto primero: ej: ( ) a b)")
                     new_set.add(part)
         self.languages[lang_name] = new_set
 
-    # --- OPERACIONES ---
+    # --- OPERACIONES DE CONJUNTOS ---
 
     def concatenate(self, L1, L2):
         result = set()
@@ -50,70 +57,102 @@ class LanguageProcessor:
         return result
 
     def complement(self, L1):
+        """Complemento relativo: Qué caracteres del alfabeto le faltan a cada cadena."""
         if not self.alphabet: return set() 
         result = set()
+        # Ordenamos para consistencia visual
         sorted_alpha = sorted(list(self.alphabet))
+        
         for string in L1:
             chars_in_string = set(string)
             for char in sorted_alpha:
+                # Si el caracter del alfabeto NO está en la cadena, se agrega
                 if char not in chars_in_string:
                     result.add(char)
         return result
     
-    # --- PARSER ---
+    # --- PARSER BLINDADO (Analizador de Fórmulas) ---
 
     def _tokenize(self, expr):
+        # Este regex solo busca operadores y nombres de variables (L1, L2...).
+        # NO mira el contenido de los lenguajes, por lo que es seguro usar '(' en el alfabeto.
         pattern = r'(L\d+|[U∩\-Δ•()ᶜ]|\s+)'
         tokens = [t for t in re.split(pattern, expr) if t and not t.isspace()]
         return tokens
 
     def evaluate_expression(self, expression):
         if not expression: return set()
+        
         tokens = self._tokenize(expression)
         output_queue = []
         operator_stack = []
+        
+        # Precedencia de operadores
         precedence = {'ᶜ': 4, '•': 3, '∩': 2, 'U': 1, '-': 1, 'Δ': 1, '(': 0}
 
         for token in tokens:
             if re.match(r'L\d+', token): 
+                # Es un lenguaje (L1, L2...)
                 if token not in self.languages:
                      raise ValueError(f"El lenguaje {token} no existe.")
+                # Aquí obtenemos el conjunto real. Puede contener '(', ')', lo que sea.
+                # Como ya es un objeto 'set', no interfiere con el análisis de texto.
                 output_queue.append(self.languages[token])
+            
             elif token in precedence: 
+                # Es un operador o paréntesis DE LA FÓRMULA
                 while (operator_stack and operator_stack[-1] != '(' and
                        precedence[operator_stack[-1]] >= precedence[token]):
                     output_queue.append(operator_stack.pop())
                 operator_stack.append(token)
+            
             elif token == '(':
                 operator_stack.append(token)
+            
             elif token == ')':
+                # Sacar todo hasta encontrar el paréntesis de apertura
                 while operator_stack and operator_stack[-1] != '(':
                     output_queue.append(operator_stack.pop())
-                operator_stack.pop() 
+                
+                # Validación crítica de paréntesis desbalanceados
+                if not operator_stack:
+                    raise ValueError("Error de sintaxis: Hay paréntesis ')' de más en la fórmula.")
+                
+                operator_stack.pop() # Eliminar el '(' del stack
 
+        # Vaciamos el resto de la pila
         while operator_stack:
-            output_queue.append(operator_stack.pop())
+            op = operator_stack.pop()
+            if op == '(':
+                 raise ValueError("Error de sintaxis: Falta cerrar paréntesis '('.")
+            output_queue.append(op)
 
+        # --- EVALUACIÓN (Notación Polaca Inversa) ---
         eval_stack = []
         for token in output_queue:
             if isinstance(token, set):
                 eval_stack.append(token)
             else: 
-                if token == 'ᶜ':
-                    if len(eval_stack) < 1: raise ValueError("Error sintaxis compl.")
+                # Es un operador, sacamos operandos del stack
+                if token == 'ᶜ': # Unario
+                    if len(eval_stack) < 1: raise ValueError("Error en Complemento: falta operando.")
                     val1 = eval_stack.pop()
                     eval_stack.append(self.complement(val1))
-                else:
-                    if len(eval_stack) < 2: raise ValueError("Error sintaxis.")
+                else: # Binario
+                    if len(eval_stack) < 2: 
+                        raise ValueError(f"Error en operación: faltan operandos para '{token}'.")
                     val2 = eval_stack.pop()
                     val1 = eval_stack.pop()
+                    
                     if token == 'U': eval_stack.append(val1 | val2)
                     elif token == '∩': eval_stack.append(val1 & val2)
                     elif token == '-': eval_stack.append(val1 - val2)
                     elif token == 'Δ': eval_stack.append(val1 ^ val2)
                     elif token == '•': eval_stack.append(self.concatenate(val1, val2))
 
-        if len(eval_stack) != 1: raise ValueError("Error al evaluar.")
+        if len(eval_stack) != 1: 
+            raise ValueError("Error: Fórmula incompleta. ¿Olvidaste un operador (ej: •)?")
+            
         return eval_stack[0]
 
 
@@ -122,8 +161,8 @@ class LanguageProcessor:
 class AutoLangsApp(ttk.Window):
     def __init__(self):
         super().__init__(themename="cosmo") 
-        self.title("Calculadora de lenguajes")
-        self.geometry("1100x850") # Un poco más ancho para que quepa todo bien
+        self.title("Calculadora de Lenguajes")
+        self.geometry("1100x850") 
         
         self.processor = LanguageProcessor()
         self.lang_entries = {} 
@@ -131,9 +170,10 @@ class AutoLangsApp(ttk.Window):
         self.setup_ui()
 
     def setup_ui(self):
+        # Cabecera
         header = ttk.Frame(self, padding=(20, 10))
         header.pack(fill=X)
-        ttk.Label(header, text="Calculadora de lenguajes", font=("Helvetica", 16, "bold")).pack(side=LEFT)
+        ttk.Label(header, text="Calculadora de Autómatas", font=("Helvetica", 16, "bold")).pack(side=LEFT)
         ttk.Checkbutton(header, text="Modo Oscuro", variable=self.is_dark_mode, command=self.toggle_theme, bootstyle="round-toggle").pack(side=RIGHT)
 
         main_frame = ttk.Frame(self, padding=20)
@@ -142,41 +182,41 @@ class AutoLangsApp(ttk.Window):
         # 1. Alfabeto
         f1 = ttk.Labelframe(main_frame, text="1. Alfabeto (Σ)", padding=10)
         f1.pack(fill=X, pady=5)
-        ttk.Label(f1, text="Símbolos separados por estacio").pack(anchor=W)
+        # Instrucción clara sobre espacios
+        ttk.Label(f1, text="Símbolos separados por ESPACIO. (Ejemplo: a b ( ) 1 0)").pack(anchor=W)
         self.alphabet_entry = ttk.Entry(f1)
         self.alphabet_entry.pack(fill=X, pady=5)
 
         # 2. Lenguajes
-        f2 = ttk.Labelframe(main_frame, text="2. Define los Lenguajes (L)", padding=10)
+        f2 = ttk.Labelframe(main_frame, text="2. Definición de Lenguajes (L)", padding=10)
         f2.pack(fill=BOTH, expand=YES, pady=10)
         
         self.langs_container = ScrolledFrame(f2, padding=5, height=200)
         self.langs_container.pack(fill=BOTH, expand=YES)
         
+        ttk.Label(f2, text="Nota: Separe los elementos con ESPACIOS.", font=("Arial", 9, "bold")).pack(anchor=E)
         ttk.Button(f2, text="+ Agregar Lenguaje", command=self.add_language_row, bootstyle="SUCCESS").pack(anchor=E, pady=5)
 
         # 3. Operaciones
         f3 = ttk.Labelframe(main_frame, text="3. Operaciones", padding=10)
         f3.pack(fill=X, pady=10)
 
+        # Pantalla de fórmula (Solo lectura)
         self.expr_entry = ttk.Entry(f3, font=("Consolas", 14), state="readonly")
         self.expr_entry.pack(fill=X, pady=(0, 10))
 
         btns_container = ttk.Frame(f3)
         btns_container.pack(fill=X)
 
-        # --- CAMBIO AQUÍ: Panel Izquierdo con SCROLL y ANCHO FIJO ---
-        # Usamos un Frame normal para el título y borde
+        # Panel Izquierdo con SCROLL (Botones L)
         self.lang_btns_wrapper = ttk.Labelframe(btns_container, text="Lenguajes Disponibles", padding=5, width=350)
-        # pack_propagate(False) evita que el frame se encoja o agrande según el contenido
         self.lang_btns_wrapper.pack_propagate(False) 
         self.lang_btns_wrapper.pack(side=LEFT, fill=BOTH, padx=(0, 10))
 
-        # Dentro ponemos el ScrolledFrame para que si hay muchos, se pueda bajar
         self.lang_btns_scroll = ScrolledFrame(self.lang_btns_wrapper, height=150)
         self.lang_btns_scroll.pack(fill=BOTH, expand=YES)
         
-        # --- Panel Derecho (Operadores) ---
+        # Panel Derecho (Botones Operadores)
         ops_btns_frame = ttk.Frame(btns_container)
         ops_btns_frame.pack(side=RIGHT, fill=BOTH, expand=YES)
 
@@ -191,10 +231,10 @@ class AutoLangsApp(ttk.Window):
         sym_frame.pack(fill=X)
         
         operators = [
-            ("U", " U "), ("∩", " ∩ "), 
-            ("-", " - "), ("Δ", " Δ "), 
-            ("•", " • "), ("(", "("), ( ")", ")"),
-            ("(Lᶜ)", "ᶜ") 
+            ("U (Unión)", " U "), ("∩ (Inter)", " ∩ "), 
+            ("- (Dif)", " - "), ("Δ (Sim)", " Δ "), 
+            ("• (Concat)", " • "), ("(..)", "("), ( "..)", ")"),
+            ("Complemento (Lᶜ)", "ᶜ") 
         ]
         
         r, c = 0, 0
@@ -221,22 +261,15 @@ class AutoLangsApp(ttk.Window):
         self.style.theme_use(style)
 
     def refresh_lang_buttons(self):
-        # Limpiamos los botones dentro del área de scroll
         for widget in self.lang_btns_scroll.winfo_children():
             widget.destroy()
-            
         keys = list(self.lang_entries.keys())
         keys.sort(key=lambda x: int(x[1:]))
-        
-        # --- CAMBIO AQUÍ: Usamos GRID en lugar de PACK ---
         r, c = 0, 0
         for key in keys:
-            # Botones un poco más pequeños para que quepan bien
             btn = ttk.Button(self.lang_btns_scroll, text=key, command=lambda k=key: self.insert_symbol(k), bootstyle="info", width=5)
             btn.grid(row=r, column=c, padx=3, pady=3)
-            
             c += 1
-            # Si llegamos a 4 columnas, bajamos a la siguiente fila
             if c >= 4:
                 c = 0
                 r += 1
@@ -293,6 +326,7 @@ class AutoLangsApp(ttk.Window):
                 res_str = "∅"
             else:
                 res_list = sorted(list(result), key=len)
+                # Formateamos bonito con llaves
                 res_str = "{ " + ", ".join(res_list) + " }"
 
             self.result_text.configure(state="normal")
