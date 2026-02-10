@@ -167,7 +167,6 @@ class AutoLangsApp(ttk.Window):
         self.langs_container = ScrolledFrame(f2, padding=5, height=200)
         self.langs_container.pack(fill=BOTH, expand=YES)
         
-        ttk.Label(f2, text="Nota: Separe los elementos con ESPACIOS.", font=("Arial", 9, "bold")).pack(anchor=E)
         ttk.Button(f2, text="+ Agregar Lenguaje", command=self.add_language_row, bootstyle="SUCCESS").pack(anchor=E, pady=5)
 
         # 3. Operaciones
@@ -207,8 +206,8 @@ class AutoLangsApp(ttk.Window):
         operators = [
             ("U (Unión)", "U"), ("∩ (Inter)", "∩"), 
             ("- (Dif)", "-"), ("Δ (Sim)", "Δ"), 
-            ("• (Concat)", "•"), ("(..)", "("), ( "..)", ")"),
-            ("Complemento (Lᶜ)", "ᶜ") 
+            ("• (Concat)", "•"), ("(", "("), ( ")", ")"),
+            ("(Lᶜ)", "ᶜ") 
         ]
         
         r, c = 0, 0
