@@ -5,12 +5,13 @@ from ttkbootstrap.constants import *
 from ttkbootstrap.scrolled import ScrolledFrame
 import re
 
-# --- LÓGICA DEL BACKEND (Igual de robusta que antes) ---
+# --- LÓGICA DEL BACKEND ---
 
 class LanguageProcessor:
     def __init__(self):
         self.alphabet = set()
         self.languages = {}
+        self.closure_limit = 3 # Límite por defecto para cerraduras
 
     def set_alphabet(self, alphabet_str):
         if not alphabet_str.strip():
@@ -21,9 +22,9 @@ class LanguageProcessor:
     def validate_string(self, s):
         if not self.alphabet: return True 
         if s == "": return True
-        for char in s:
-            if char not in self.alphabet: return False
-        return True
+        escaped_alpha = [re.escape(sym) for sym in sorted(list(self.alphabet), key=len, reverse=True)]
+        pattern = re.compile(f"^({'|'.join(escaped_alpha)})+$")
+        return bool(pattern.match(s))
 
     def add_language(self, lang_name, lang_str):
         new_set = set()
@@ -34,8 +35,7 @@ class LanguageProcessor:
                 parts = lang_str.split()
                 for part in parts:
                     if not self.validate_string(part):
-                        bad_char = next((c for c in part if c not in self.alphabet), "?")
-                        raise ValueError(f"Error en {lang_name}: El carácter '{bad_char}' no está en el Alfabeto.\n(Definir primero. Ej: a b ( ) 1)")
+                        raise ValueError(f"Error en {lang_name}: La cadena '{part}' no se puede formar con los símbolos del Alfabeto.")
                     new_set.add(part)
         self.languages[lang_name] = new_set
 
@@ -53,18 +53,44 @@ class LanguageProcessor:
         if not self.alphabet: return set() 
         result = set()
         sorted_alpha = sorted(list(self.alphabet))
+        escaped_alpha = [re.escape(sym) for sym in sorted(list(self.alphabet), key=len, reverse=True)]
+        pattern = re.compile(f"({'|'.join(escaped_alpha)})")
+        
         for string in L1:
-            chars_in_string = set(string)
-            for char in sorted_alpha:
-                if char not in chars_in_string:
-                    result.add(char)
+            symbols_in_string = set(pattern.findall(string))
+            for sym in sorted_alpha:
+                if sym not in symbols_in_string:
+                    result.add(sym)
+        return result
+
+    def kleene_star(self, L1):
+        """Cerradura de Kleene L* (Incluye L^0 que es la cadena vacía epsilon)"""
+        result = {""} # L^0 = {epsilon}
+        current_power = {""}
+        
+        for _ in range(self.closure_limit):
+            current_power = self.concatenate(current_power, L1)
+            result.update(current_power)
+        return result
+
+    def positive_closure(self, L1):
+        """Cerradura Positiva L+ (No incluye L^0 por defecto)"""
+        if self.closure_limit < 1:
+            return set()
+            
+        result = set(L1) # Empieza en L^1
+        current_power = set(L1)
+        
+        for _ in range(self.closure_limit - 1):
+            current_power = self.concatenate(current_power, L1)
+            result.update(current_power)
         return result
     
     # --- PARSER ---
 
     def _tokenize(self, expr):
-        # Detecta L1, L2, operadores y simbolos.
-        pattern = r'(L\d+|[U∩\-Δ•()ᶜ]|\s+)'
+        # Agregamos los símbolos * y + a la lista de tokens permitidos
+        pattern = r'(L\d+|[U∩\-Δ•()ᶜ*+]|\s+)'
         tokens = [t for t in re.split(pattern, expr) if t and not t.isspace()]
         return tokens
 
@@ -73,7 +99,9 @@ class LanguageProcessor:
         tokens = self._tokenize(expression)
         output_queue = []
         operator_stack = []
-        precedence = {'ᶜ': 4, '•': 3, '∩': 2, 'U': 1, '-': 1, 'Δ': 1, '(': 0}
+        
+        # Precedencia: Complemento, Kleene y Positiva tienen la mayor prioridad (Unarios)
+        precedence = {'ᶜ': 4, '*': 4, '+': 4, '•': 3, '∩': 2, 'U': 1, '-': 1, 'Δ': 1, '(': 0}
 
         for token in tokens:
             if re.match(r'L\d+', token): 
@@ -109,10 +137,15 @@ class LanguageProcessor:
             if isinstance(token, set):
                 eval_stack.append(token)
             else: 
-                if token == 'ᶜ':
-                    if len(eval_stack) < 1: raise ValueError("Error Complemento: falta operando.")
+                # Operadores Unarios (sacan 1 operando)
+                if token in ['ᶜ', '*', '+']:
+                    if len(eval_stack) < 1: raise ValueError(f"Error en operación '{token}': falta operando.")
                     val1 = eval_stack.pop()
-                    eval_stack.append(self.complement(val1))
+                    if token == 'ᶜ': eval_stack.append(self.complement(val1))
+                    elif token == '*': eval_stack.append(self.kleene_star(val1))
+                    elif token == '+': eval_stack.append(self.positive_closure(val1))
+                
+                # Operadores Binarios (sacan 2 operandos)
                 else:
                     if len(eval_stack) < 2: 
                         raise ValueError(f"Error en operación '{token}': faltan operandos.")
@@ -137,7 +170,7 @@ class AutoLangsApp(ttk.Window):
     def __init__(self):
         super().__init__(themename="cosmo") 
         self.title("Calculadora de Lenguajes")
-        self.geometry("1100x850") 
+        self.geometry("1100x900") # Un poco más alto para los nuevos botones
         
         self.processor = LanguageProcessor()
         self.lang_entries = {} 
@@ -156,7 +189,7 @@ class AutoLangsApp(ttk.Window):
         # 1. Alfabeto
         f1 = ttk.Labelframe(main_frame, text="1. Alfabeto (Σ)", padding=10)
         f1.pack(fill=X, pady=5)
-        ttk.Label(f1, text="Símbolos separados por ESPACIO. (Ejemplo: a b ( ) 1 0)").pack(anchor=W)
+        ttk.Label(f1, text="Símbolos separados por ESPACIO. (Ejemplo: a b ( ) 10 1)").pack(anchor=W)
         self.alphabet_entry = ttk.Entry(f1)
         self.alphabet_entry.pack(fill=X, pady=5)
 
@@ -167,28 +200,34 @@ class AutoLangsApp(ttk.Window):
         self.langs_container = ScrolledFrame(f2, padding=5, height=200)
         self.langs_container.pack(fill=BOTH, expand=YES)
         
+        ttk.Label(f2, text="Nota: Separe los elementos con ESPACIOS.", font=("Arial", 9, "bold")).pack(anchor=E)
         ttk.Button(f2, text="+ Agregar Lenguaje", command=self.add_language_row, bootstyle="SUCCESS").pack(anchor=E, pady=5)
 
         # 3. Operaciones
         f3 = ttk.Labelframe(main_frame, text="3. Operaciones", padding=10)
         f3.pack(fill=X, pady=10)
 
-        # --- CAMBIO IMPORTANTE: Entry normal (ya no es readonly) ---
+        # --- NUEVO: Cuadro para el límite de cerradura ---
+        limit_frame = ttk.Frame(f3)
+        limit_frame.pack(fill=X, pady=(0, 10))
+        ttk.Label(limit_frame, text="Límite máximo (n) para cerraduras (*, +):", font=("Arial", 10, "bold")).pack(side=LEFT)
+        self.limit_entry = ttk.Entry(limit_frame, width=5)
+        self.limit_entry.pack(side=LEFT, padx=10)
+        self.limit_entry.insert(0, "3") # Valor por defecto
+
         self.expr_entry = ttk.Entry(f3, font=("Consolas", 14))
         self.expr_entry.pack(fill=X, pady=(0, 10))
 
         btns_container = ttk.Frame(f3)
         btns_container.pack(fill=X)
 
-        # Panel Izquierdo con SCROLL
         self.lang_btns_wrapper = ttk.Labelframe(btns_container, text="Lenguajes Disponibles", padding=5, width=350)
         self.lang_btns_wrapper.pack_propagate(False) 
         self.lang_btns_wrapper.pack(side=LEFT, fill=BOTH, padx=(0, 10))
 
-        self.lang_btns_scroll = ScrolledFrame(self.lang_btns_wrapper, height=150)
+        self.lang_btns_scroll = ScrolledFrame(self.lang_btns_wrapper, height=180) # Un poco más alto
         self.lang_btns_scroll.pack(fill=BOTH, expand=YES)
         
-        # Panel Derecho (Operadores)
         ops_btns_frame = ttk.Frame(btns_container)
         ops_btns_frame.pack(side=RIGHT, fill=BOTH, expand=YES)
 
@@ -196,18 +235,19 @@ class AutoLangsApp(ttk.Window):
         ctrl_frame.pack(fill=X, pady=(0, 5))
         
         ttk.Button(ctrl_frame, text="Limpiar Fórmula", command=self.clear_formula, bootstyle="DANGER", width=15).pack(side=LEFT, padx=2)
-        # El botón Backspace sigue siendo útil, pero ahora puedes usar el de tu teclado también
         ttk.Button(ctrl_frame, text="⌫", command=self.backspace_expression, bootstyle="WARNING", width=5).pack(side=LEFT, padx=2)
         ttk.Button(ctrl_frame, text="CALCULAR (=)", command=self.calculate, bootstyle="PRIMARY", width=15).pack(side=LEFT, padx=2)
 
         sym_frame = ttk.Frame(ops_btns_frame)
         sym_frame.pack(fill=X)
         
+        # --- NUEVO: Agregamos Kleene y Positiva ---
         operators = [
             ("U (Unión)", "U"), ("∩ (Inter)", "∩"), 
             ("- (Dif)", "-"), ("Δ (Sim)", "Δ"), 
             ("• (Concat)", "•"), ("(", "("), ( ")", ")"),
-            ("(Lᶜ)", "ᶜ") 
+            ("Complemento (Lᶜ)", "ᶜ"),
+            ("Kleene (L*)", "*"), ("Positiva (L+)", "+")
         ]
         
         r, c = 0, 0
@@ -223,7 +263,7 @@ class AutoLangsApp(ttk.Window):
         # 4. Resultado
         f4 = ttk.Labelframe(main_frame, text="4. Resultado", padding=10)
         f4.pack(fill=X)
-        self.result_text = ttk.Text(f4, height=3, font=("Consolas", 11), state="disabled")
+        self.result_text = ttk.Text(f4, height=4, font=("Consolas", 11), state="disabled")
         self.result_text.pack(fill=X)
 
         self.add_language_row()
@@ -266,18 +306,14 @@ class AutoLangsApp(ttk.Window):
         self.refresh_lang_buttons()
 
     def insert_symbol(self, symbol):
-        # CAMBIO: Insertar en la posición del cursor (INSERT) en lugar del final (END)
-        # y no necesitamos bloquear/desbloquear porque ya es editable.
         self.expr_entry.insert(tk.INSERT, f"{symbol}")
-        self.expr_entry.focus() # Regresamos el foco al entry para seguir escribiendo
+        self.expr_entry.focus() 
 
     def clear_formula(self):
         self.expr_entry.delete(0, tk.END)
 
     def backspace_expression(self):
-        # Ahora este botón borra lo que está ANTES del cursor, no solo al final
         try:
-            # Obtener indice del cursor
             idx = self.expr_entry.index(tk.INSERT)
             if idx > 0:
                 self.expr_entry.delete(idx-1, idx)
@@ -285,6 +321,26 @@ class AutoLangsApp(ttk.Window):
             pass
 
     def calculate(self):
+        # 1. Recuperar el límite de las cerraduras con protección
+        try:
+            limit_val = int(self.limit_entry.get())
+            if limit_val < 0: raise ValueError
+            
+            # Protección contra congelamiento: limitamos a 6 como máximo internamente
+            if limit_val > 6:
+                messagebox.showwarning("Límite ajustado", "Para evitar que tu computadora se congele calculando infinitos, el límite máximo permitido es 6.\nSe calculará usando n=6.")
+                limit_val = 6
+                self.limit_entry.delete(0, tk.END)
+                self.limit_entry.insert(0, "6")
+                
+            self.processor.closure_limit = limit_val
+        except ValueError:
+            messagebox.showwarning("Aviso", "El límite de cerradura debe ser un número entero positivo. Se usará 3 por defecto.")
+            self.limit_entry.delete(0, tk.END)
+            self.limit_entry.insert(0, "3")
+            self.processor.closure_limit = 3
+
+        # 2. Continúa normal
         self.processor.set_alphabet(self.alphabet_entry.get())
         self.processor.languages = {} 
         try:
@@ -297,7 +353,10 @@ class AutoLangsApp(ttk.Window):
             if not result:
                 res_str = "∅"
             else:
-                res_list = sorted(list(result), key=len)
+                # Ordenamos primero por longitud, luego alfabéticamente
+                res_list = sorted(list(result), key=lambda x: (len(x), x))
+                # Reemplazamos las cadenas vacías ("") por el símbolo Epsilon para que se vea bien
+                res_list = ["ε" if s == "" else s for s in res_list]
                 res_str = "{ " + ", ".join(res_list) + " }"
 
             self.result_text.configure(state="normal")
